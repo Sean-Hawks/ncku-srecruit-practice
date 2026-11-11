@@ -1,0 +1,14 @@
+# Generated binaries and build output
+**/demo_asm
+**/bin/
+**/*.o
+**/*.out
+**/__pycache__/
+
+# Local environment and secrets
+.env
+.env.*
+*.pem
+*.key
+*.token
+.DS_Store
