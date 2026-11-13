@@ -1,66 +1,64 @@
-# Docker：環境與檔案在哪裡
+# Docker：環境、檔案與正在跑的程式
 
-**先記：image 是環境範本；container 是用它開出的執行環境；bind mount 是把主機資料夾接進去。**
+[← 回考場筆記入口](../README.md) · [命令集中查](../操作清單.md)
 
-## 目前練習環境
+**Docker 讓程序在指定環境裡執行。檔案同步、重新編譯、重新啟動，是分開的事。**
+
+## 四個名詞
+
+| 名詞 | 意思 |
+|---|---|
+| image | 打包好的環境範本 |
+| container | 用 image 建立的執行環境，裡面可以跑多個程序 |
+| COPY | 建 image 時複製檔案，留下當時的快照 |
+| bind mount | 將既有主機路徑接到容器路徑，兩邊看同一份檔案 |
+
+Linux 容器通常共用主機 kernel，但套件、程序視野與路徑可不同。它不是板子的韌體，也不是另外啟動一台完整電腦。
+
+## 指令差在哪：在主機使用
+
+| 指令 | 做什麼 |
+|---|---|
+| `docker ps -a` | 列容器、名稱與狀態 |
+| `docker build` | 依 Dockerfile 建 image |
+| `docker run` | 新建並啟動一個 container |
+| `docker start 容器名` | 啟動已存在、停止中的 container |
+| `docker exec -it 容器名 bash` | 在已執行的容器裡開 shell |
+| `docker stop 容器名` | 停止容器，裡面的程序也會中斷 |
+| `exit` | 結束目前 shell；容器是否停止取決於主程序 |
+
+**在主機 cd 到哪裡，不會改變既有容器的掛載。** exec 只是進入原來的環境，不會重新複製你的目前資料夾。
+
+## 改了沒生效：照這三層查
+
+| 層 | 要確認 | 判斷 |
+|---|---|---|
+| 檔案 | 編輯器已 `:w`；容器讀到的是哪份檔案 | 兩邊內容若不同，先查 mount／路徑 |
+| 建置 | C/C++ 是否產生新執行檔 | 存檔不等於編譯 |
+| 程序 | 是否仍有舊程序在跑 | Python／一般執行檔通常要重啟才載入新版本 |
+
+主機查 mount，將容器名換成實際值：
+
+```bash
+docker inspect 容器名 --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{println}}{{end}}'
+```
+
+Source 是主機來源，Destination 是容器路徑。掛到某個目錄後，image 中原本那個位置的內容會被暫時遮住。讀寫掛載下，在容器刪檔也會刪主機檔案。
+
+## 家用設定：不是考場固定路徑
 
 ```text
 主機 /home/hawks/Development/ncku-srecruit-practice/demo
-                         ↕ 同一份檔案，讀寫掛載
+                           ↕ bind mount
 容器 srecruit-demo 裡的 /demo
 ```
 
-主機與容器可以有不同程式、套件和路徑。容器通常共用主機 Linux kernel；它不是另外開一台完整電腦。
-
-## 最常用：在主機貼
-
-```bash
-docker ps -a                         # 查 container 與狀態
-docker start srecruit-demo            # 已停止才需要 start
-docker exec -it srecruit-demo bash    # 在既有 container 開一個 shell
-```
-
-進去後：
-
-```bash
-cd /demo/section2-1
-python3 processor.py
-```
-
-另一個主機終端機也先 `docker exec -it srecruit-demo bash`，才跑 ROS 指令。
-
-| 操作 | 做什麼 |
-|---|---|
-| `docker build` | 依 Dockerfile 建 image |
-| `docker run` | 建立並啟動新的 container |
-| `docker start` | 啟動已存在、停止中的 container |
-| `docker exec` | 在正在執行的 container 裡啟動另一個程式 |
-| `exit` | 結束目前 shell；是否讓整個 container 停止，要看主程序 |
-
-## 外面改了，裡面沒變
-
-1. nvim `:w` 存檔。
-2. 查兩邊是不是同一份檔案。
-3. Python：Ctrl-C 後重跑。C：重新編譯再跑。
-
-在**主機**：
-
-```bash
-docker inspect srecruit-demo --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{println}}{{end}}'
-rg 'out.data =' ~/Development/ncku-srecruit-practice/demo/section2-1/processor.py
-docker exec srecruit-demo grep 'out.data =' /demo/section2-1/processor.py
-```
-
-你之前真的發生過：nvim 改新 repo，container 卻掛舊的 ncku-practice/demo。目前已改成上面的新路徑。**在哪個主機資料夾執行 exec，不會改掛載。**
-
-`COPY . /demo` 是建 image 時的快照；bind mount 才是直接接到主機資料夾。mount 到 /demo 後，該位置原本的 image 內容會被掛載內容遮住。
-
-## 要掛到自己選的資料夾
+進入既有家用容器：`docker exec -it srecruit-demo bash`。你之前的問題是容器掛舊 repo、nvim 改新 repo，詳見 [環境紀錄](../練習環境與路線.md)。
 
 <details>
-<summary>新建練習容器的長指令：只改 src 與名字</summary>
+<summary>只有需要新建容器時：掛到指定資料夾的命令</summary>
 
-前提：主機上已有 srecruit-demo image，src 資料夾存在。**這會建立另一個容器**：
+以下前提是主機已有 srecruit-demo image、來源資料夾存在。建立名為 my-practice 的新容器：
 
 ```bash
 docker run --rm -it \
@@ -69,32 +67,12 @@ docker run --rm -it \
   srecruit-demo bash
 ```
 
-src 是主機資料夾，dst 是容器路徑。第二個終端機改用：
+src 改成想接入的主機資料夾；dst 是容器內路徑。另一個終端進入同一個新容器用 `docker exec -it my-practice bash`。
 
-```bash
-docker exec -it my-practice bash
-```
-
-原始 bash 結束時，這個 `--rm` 容器會刪除；掛載的主機檔案保留。既有 container 要換 mount，需要另建容器時指定。
-
-若 image 不存在，在**主機的 demo 目錄**建置：
-
-```bash
-cd ~/Development/ncku-srecruit-practice/demo
-docker build -t srecruit-demo .
-```
+主 shell 結束後，`--rm` 會移除這個容器；掛載的主機檔案仍保留。更換既有容器的 mount 通常需要另建容器，先保留原容器內需要的資料。
 
 </details>
 
-## USB、網路與停止
-
-- 容器看不到主機 USB，不代表板子壞了；還可能缺裝置映射與權限。優先用題目提供的燒錄環境。
-- 目前 ROS 練習都在同一個 container。跨容器／跨主機還涉及網路與 ROS discovery，別先猜演算法錯。
-- `docker stop srecruit-demo` 會中斷裡面正在執行的程式。
-- 掛載是讀寫的：在容器刪 /demo 裡的檔案，也會刪主機檔案。
-
-**驗證自己懂了：**主機改公式後，容器 grep 立即看見新公式；重啟 processor 後，21 才得到新結果。
+USB 權限／裝置映射與網路是另外的配置。容器看不到板子、ROS 跨容器找不到 node 時，先查題目提供的部署環境。
 
 來源：[Docker bind mounts](https://docs.docker.com/engine/storage/bind-mounts/)、[container 概念](https://docs.docker.com/get-started/docker-concepts/the-basics/what-is-a-container/)。
-
-[回技術目錄](README.md)

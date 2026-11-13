@@ -1,254 +1,107 @@
-# RP2350 與 Pico SDK：拿到陌生題目時怎麼開始
+# RP2350 與 Pico SDK：讀懂題目的開發環境
 
-**照這條路走：讀規格 → 找程式入口 → 建置原版 → 寫入正確板子 → 跑一筆已知測資 → 補功能 → 量測與優化。**
+[← 回考場筆記入口](../README.md) · [ISA](ISA與指令編碼.md) · [PIO](PIO.md)
 
-每一題要重新確認的是「輸入輸出、核心功能、板型、專案設定」；下面的找法與驗證順序可以沿用。程式、目錄與裝置名稱，都從該題找，不從這份筆記照抄。
+**RP2350 是執行韌體的微控制器；Pico SDK 是讓 C/C++ 程式操作它的工具庫。** 主機負責編譯、寫入、送測資，板子負責執行寫進去的程式。
 
-材料還特別提到 **ISA 的編碼、定址方式與 PIO**。拿到題目後除了找到建置方式，也要辨認使用哪套指令集；實作準備見 [ISA／機器碼解碼](ISA與指令編碼.md) 與 [PIO](PIO.md)。
+演練參考資料連到 RP2350 的 PIO 文件；正式板型、CPU 架構與演算法仍依題目。本頁供看到 RP2350／Pico SDK 專案時查閱。
 
-## 0 先分清：哪些在電腦，哪些在板子
+## 和你用過的東西怎麼對照
+
+| 名稱 | 角色 | 你會碰到什麼 |
+|---|---|---|
+| Raspberry Pi 4／5 等單板電腦 | 能跑 Linux 的電腦 | 登入 OS、執行程序 |
+| RP2350／搭載它的 Pico 2 | 微控制器／開發板 | 編譯韌體、寫入板子、操作周邊 |
+| ESP32 系列 | 另一種微控制器系列 | 用其 SDK／框架；功能與核心數看型號 |
+| Pico SDK | RP 系列的 C/C++ 函式庫 | pio、dma、multicore、stdio 等 API |
+| CMake | 建置規則工具 | 決定來源檔、SDK、目標與連結庫 |
+| 交叉編譯器 | 把主機上的 C/C++ 轉成板子 CPU 的指令 | 目標為 Arm 或 RISC-V，不能直接拿主機 cc 代替 |
+| PlatformIO | 整合建置／上傳／監看的開發工具 | 你以前按的 Build、Upload、Monitor 仍是分開的步驟 |
+
+RP2350 可選雙 Arm Cortex-M33 或雙 Hazard3 RISC-V 核心的組合，不是四顆核心一起拿來跑。實際架構看題目、工具鏈與專案設定。
+
+## 拿到新專案，從哪個檔案找答案
+
+| 要知道什麼 | 去哪找 |
+|---|---|
+| 怎麼建置／提交 | 題目 PDF、README、腳本 |
+| 板型、CPU 架構 | CMake、preset、toolchain；常見關鍵字 PICO_BOARD／PICO_PLATFORM |
+| 程式入口 | main、callback、題目標出的 TODO |
+| 哪些 .c 真的會被編譯 | add_executable、target_sources |
+| PIO 有沒有用上 | .pio、pico_generate_pio_header、主程式載入與啟用處 |
+| 哪裡接收與回傳 | USB/UART／ROS 橋接程式、封包解析函式 |
+| 輸入與答案格式 | 型別、元素數、byte 數、endian、工作 ID、參考測資 |
+
+最有用的一行筆記是：**實際輸入位置 → 處理函式 → 實際輸出位置**。這行適用於推論、排序、校驗或資料搬運，不必預設 eBNN。
+
+在題目根目錄，工具已提供時可查：
+
+```bash
+rg --files -g 'README*' -g 'CMakeLists.txt' -g 'CMakePresets.json' -g 'Makefile' -g '*.pio'
+rg -n 'main[[:space:]]*\(|TODO|add_executable|target_sources|PICO_BOARD|PICO_PLATFORM' .
+```
+
+## 建置、寫入、執行是三件事
 
 ```text
-電腦：編輯程式 → 編譯成韌體檔 → 寫進板子
-板子：收到題目指定的輸入 → 執行處理 → 送出指定的結果
-電腦：發測資、觀察結果、比對答案
+主機原始碼 → 編譯／連結 → .elf／.uf2 → 寫入板子 → 板子執行
 ```
 
-韌體＝寫進板子執行的程式。RP2350 是晶片；Pico 2 是搭載它的開發板之一，題目也可能用其他板型。
-
-你以前的 PlatformIO Build／Upload／Serial Monitor，也是在安排編譯、寫入與觀察。Pico SDK 提供操作板子功能的程式；CMake 安排建置；編譯器把你的 C/C++ 和所用 SDK 程式翻成目標指令。
-
-**先依題目確認在哪個 shell／container 操作。** 編譯環境要看得到 SDK／工具鏈；寫入和通訊環境要能存取 USB 裝置。進了 ROS Docker，不代表它就備妥板子工具鏈或 USB。
-
-## 1 讀題目，把這五格填出來
-
-| 要找什麼 | 實際記下什麼 | 為什麼先找 |
-|---|---|---|
-| 輸入規格 | 從哪來、型別、長度、單位、排列方式 | 才知道收多少、怎麼解讀 |
-| 輸出規格 | 要回什麼、經哪個介面、格式與順序 | 算對但回錯格式仍可能不通過 |
-| 正確答案 | 範例測資、測試程式或參考版本 | 之後改程式才知道有沒有改壞 |
-| 開發與部署 | 板型、Arm／RISC-V、建置與寫入指令 | RP2350 不等於固定板型、固定架構 |
-| 評分目標 | 正確性、單筆延遲、整批時間或其他限制 | 決定要優化哪個數字 |
-
-例如 eBNN 要查的是「模型函式吃 float 還是 bytes、幾個元素、回類別還是分數」，不能只看到模型名稱就猜格式。排序、CRC 或位元解析，也用同樣五格整理。
-
-## 2 找到「收資料 → 做事 → 交結果」的程式位置
-
-在**新題目的 repo 根目錄**，先列出專案設定：
-
-```bash
-pwd
-rg --files -g 'README*' -g 'CMakeLists.txt' -g 'CMakePresets.json' -g 'Makefile' -g 'platformio.ini'
-```
-
-接著找入口、待補位置與建置目標：
-
-```bash
-rg -n 'main[[:space:]]*\(|TODO|FIXME|add_executable|target_sources|pico_sdk_init' .
-```
-
-沒有 rg 就用編輯器搜尋。命中後要打開上下文，沿實際呼叫往下讀，不代表搜尋到的第一個 main 就是作答入口。
-
-| 看到什麼 | 接下來找什麼 |
+| 東西 | 是什麼 |
 |---|---|
-| 題目指定的 main／callback | 何時開始接收，資料放哪個 buffer |
-| 接收或解析函式 | 怎麼判斷收到完整一筆，長度單位是什麼 |
-| 演算法／模型函式、TODO | 哪些已提供、哪些要你實作 |
-| 發送／發布函式 | 結果經哪個介面交出去 |
-| add_executable、target_sources | 哪些 .c/.cpp 真的會編進韌體 |
-| .pio | 是否由主程式載入、題目要它處理什麼 |
+| .elf | 目標執行檔，可含符號／除錯資訊 |
+| .uf2 | 供支援的 bootloader 寫入的韌體格式 |
+| USB 文字 log | 韌體有啟用時才提供的觀察介面 |
+| USB／UART 輸入 | 依題目協定收資料，和寫 UF2 不是同一步 |
 
-先在筆記畫一行：**實際輸入位置 → 實際處理函式 → 實際輸出位置**。之後依故障停在哪一段，查對應程式。
+**改主機檔案不會直接更新板子。** 韌體改動要重新建置、寫入；主機 Python 改動通常只需重啟該程序。Docker 掛載只同步檔案，不替你做編譯或燒錄。
 
-## 3 先建置原版，確認使用正確環境
+## Pico SDK 常見命令形狀
 
-讀 README 的建置指令與設定檔，沿用題目指定的版本、參數與目錄。
-
-| 專案線索 | 操作方向 |
-|---|---|
-| Pico SDK／CMake | 依 README configure、build；有現成 build 或 preset 就沿用 |
-| Makefile／腳本 | 讀目標與腳本內容，使用題目提供的命令 |
-| platformio.ini | 看 board、platform、framework，按該環境建置 |
-
-下面的 **`<...>` 都要先換成你找出的實際值**，不是可原樣貼上的路徑。以已配置的 CMake 專案為例：
+優先使用題目指定的腳本／preset。以下 `<...>` 都要替換為現場值，使用已提供的環境：
 
 ```bash
 cmake --build "<建置目錄>"
 ```
 
-如果尚未 configure，且題目確認採一般 Pico SDK CMake 流程：
+尚未配置，而且題目採一般 CMake 流程時，才需要 configure：
 
 ```bash
-cmake -S "<原始碼目錄>" -B "<建置目錄>" -DPICO_BOARD="<實際板型>"
+cmake -S "<來源目錄>" -B "<建置目錄>" -DPICO_BOARD="<實際板型>"
 cmake --build "<建置目錄>"
 ```
 
-題目若指定架構、工具鏈或其他參數，依原指令帶上；上面沒有替你猜這些值。
+題目指定的架構／toolchain 參數也要帶上；不能只靠 PICO_BOARD 猜全部。需要定位既有 SDK 時可查 `PICO_SDK_PATH`，但空白不代表專案沒透過其他方式引入 SDK。
 
-建置成功後，找這次作答目標的產物：
-
-```bash
-rg --files --no-ignore "<建置目錄>" -g '*.uf2' -g '*.elf'
-```
-
-**成功的意思：未修改版本能產生預期產物，且你知道它對應哪個目標。** 起始程式若故意有 TODO，功能測試可能尚未通過，先記下現況。
-
-建置錯誤先看第一個錯誤：找不到編譯器查環境、找不到 header 查 SDK／include、undefined reference 查實作／連結。還沒編成功時，先處理建置這一層。
-
-## 4 把正確產物寫進正確板子
-
-**原始碼存檔、建置成功、板子更新，是三個分開的動作。** 只有前兩項完成時，板子可能仍跑舊版。
-
-使用題目指定的部署方式：
-
-| 方式 | 怎麼操作 | 怎樣算成功 |
-|---|---|---|
-| BOOTSEL／UF2 | 確認板型與 UF2 相符，進 BOOTSEL，複製到板子磁碟 | 完成寫入、重啟，再用測資確認版本 |
-| picotool／現成腳本 | 確認目標板與選項後，執行提供的命令 | 工具報成功，程式能啟動與回應 |
-| Debug probe | 使用題目的除錯／寫入設定 | 能載入並啟動指定韌體 |
-
-先一片板子跑通。多片同時接著時，依序號／實際 USB 位置確認目標；不憑 ttyACM 編號猜是哪塊。
-
-BOOTSEL 操作與可照做的小例子放在文末。板子寫入後的 USB 功能由韌體決定，可能是串口，也可能是別的介面。
-
-## 5 用一筆已知測資，走完整條路
-
-使用題目提供的測試程式、host 或指定輸入方式。ROS 題才接對應 node/topic；串口題按其封包格式；接腳輸入題則按硬體介面測試。
-
-| 查哪一段 | 要有什麼證據 |
+| 訊息 | 查哪裡 |
 |---|---|
-| 接收 | 收到的長度、型別與內容正確 |
-| 處理 | 輸入正確時，函式產生預期結果 |
-| 回傳 | 格式、工作編號、順序與長度符合規格 |
+| 編譯器找不到 | 指定 shell／container、工具鏈環境 |
+| pico/xxx.h 找不到 | SDK 路徑與 include 設定 |
+| undefined reference | 實作來源、target_link_libraries、SDK 模組 |
+| 新增 .c 卻沒效果 | 有沒有加入 target_sources／實際 executable |
+| 改架構後 build 很怪 | 原建置目錄的設定快取是否仍是另一架構 |
 
-可先用題目允許的 log 或中間值定位問題。**若結果通道是 binary，debug 文字需分開，否則會破壞封包。** 串口也只能由安排好的接收程式讀取，避免額外開 cat 把答案讀走。
+## 寫入板子：依現場指定方式
 
-這一步過關：同一筆測資重複執行，拿到正確答案。接著補齊題目要求的功能，再測多筆與邊界條件。
-
-## 6 換新題目時，你實際要改哪裡
-
-| 新題目 | 要找／補的核心 | 驗證方式 |
-|---|---|---|
-| eBNN 推論 | 轉成指定模型輸入、呼叫推論、回分類／分數 | 與提供的測資答案逐筆比較 |
-| 排序 | 指定型別、排序方向與資料範圍 | 結果有序，且元素與數量正確 |
-| CRC 等校驗 | 題目指定版本與參數、處理的資料範圍 | 對照標準測資的校驗值 |
-| 位元流解析 | 按規格取欄位、排列與輸出 | 全零、全一、欄位邊界與混合資料 |
-| 搬運或多核心 | 描述工作、分工、等待完成與合併 | 結果正確，沒有越界、漏筆或重複 |
-
-從已找到的實際處理函式下手；新增 .c/.cpp 時，確認建置設定有把它編進去。輸入輸出規格也可能要補，但先沿用題目已提供的介面，縮小每次修改範圍。
-
-每次改完固定走：**存檔 → 建置 → 寫入 → 重啟／重新連線 → 同一筆測資 → 一批測資**。只有改主機程式時，依其環境重啟主機程式即可；板子程式沒有因此自動更新。
-
-## 7 有正確基準後，才選優化方式
-
-保留一批已驗證答案，分開記「接收／解析、運算、搬運、回傳」時間。修改後用相同測資比較答案與評分指標。
-
-| 量到的瓶頸 | 優先檢查 |
+| 方式 | 需要知道 |
 |---|---|
-| 傳輸或解析慢 | 格式轉換、封包大小、往返次數、是否能批次 |
-| 運算慢 | 演算法、可用的位元操作、最佳化設定與平行分工 |
-| 收訊息被計算卡住 | 以 queue 分開收送與運算，檢查 buffer 生命週期 |
-| 搬資料占 CPU | 是否適合支援的 DMA 路徑；完成後才讀結果 |
-| 接腳時序／特定位元流 | 題目是否適合交給 PIO |
+| BOOTSEL／UF2 | Pico 2 按住 BOOTSEL 插入資料 USB 線，出現 RP2350 磁碟後放入對應 UF2；完成後重啟 |
+| picotool／現成腳本 | 用題目指定的目標裝置、參數與產物 |
+| Debug probe | 用提供的 server／probe／載入設定 |
 
-多板先處理可獨立的工作：每份帶 job_id，板子回同一個 ID，主機收齊並按規格合併。多核心則要確認共享資料與暫存區如何同步；不是多開一個執行者就保證更快。
+多板時，確認每個序號／實際連線對應哪塊板子，不憑 ttyACM0 的數字猜。燒錄環境要能存取 USB，進了 ROS 容器不代表具備這些裝置或工具。
 
-詳細接法見 [單板到多板／eBNN 情境](RP2350-eBNN從單板到多板.md)、[平行運算](平行運算.md)、[資料搬運](資料搬運.md)、[PIO](PIO.md)。
+## 程式已執行，卻沒有結果
 
-## 卡住時，先判斷停在哪一層
-
-| 症狀 | 回頭查哪裡 |
+| 停在哪一層 | 查什麼 |
 |---|---|
-| 編不過 | 工具鏈、SDK、來源與連結設定 |
-| 工具說寫入失敗 | 目標裝置、寫入模式、權限與正確產物 |
-| 寫入成功，程式沒反應 | 是否跑到入口；輸入來源、初始化、等待條件 |
-| 收到了但數字不對 | 長度單位、型別、endian、前處理與核心運算 |
-| 偶爾錯、少結果 | 越界、共享資料、buffer 重用、工作 ID 與同步 |
-| 結果對但太慢 | 分段量測，依瓶頸選改法 |
+| 入口都沒到 | 是否寫入正確產物、啟動方式與初始化 |
+| 等輸入 | 來源有送？型別、長度、封包邊界對嗎？ |
+| 運算數字錯 | 前處理、位元順序、有效範圍、處理函式 |
+| 算對但回不來 | 回傳格式、job_id、輸出佇列、阻塞等待 |
+| 偶爾錯 | 越界、共享資料、buffer 提早重用、沒等完成 |
+| 正確但慢 | [分段計時](效能量測與除錯.md)，確認瓶頸才選多核心／DMA／PIO |
 
-## 有需要再展開的指令與例子
+正式 binary 資料與 debug 文字分開，避免 printf 被當成答案解析。串口只讓安排好的接收程式讀，額外的 monitor 可能讀走資料。
 
-<details>
-<summary>找不到 SDK 或編譯器：用哪裡的設定？</summary>
-
-先看 README、CMake 設定／preset 與現場環境。SDK 可能由環境變數、CMake 參數或專案中的 SDK 目錄指定；PICO_SDK_PATH 空白不一定表示完全沒提供 SDK。
-
-若題目使用環境變數指定：
-
-```bash
-printf '%s\n' "$PICO_SDK_PATH"
-command -v cmake
-```
-
-確定目標使用 Arm 的這套工具鏈時才查：
-
-```bash
-command -v arm-none-eabi-gcc
-```
-
-需要自行指定既有 SDK 位置時，將下方換成現場實際路徑：
-
-```bash
-export PICO_SDK_PATH="<已安裝的Pico SDK目錄>"
-```
-
-export 是設定位置，不是安裝。自己的 Arch Linux 從零準備可看 [環境建置](RP2350-eBNN從單板到多板.md)；考場使用提供的版本與工具。
-
-</details>
-
-<details>
-<summary>如果題目指定 BOOTSEL／UF2，怎麼寫進板子？</summary>
-
-以 Pico 2 為例：按住 BOOTSEL 時插上可傳資料的 USB 線，再放開；電腦應看到 RP2350 磁碟。將該板型、架構與作答目標對應的 UF2 複製進去；完成後板子重啟。
-
-其他板子的按鈕與部署方式依文件。UF2 寫入成功後，仍用已知測資確認執行結果；不要只以檔案複製完成判斷功能正確。
-
-</details>
-
-<details>
-<summary>如果程式有啟用 USB 文字輸出，怎麼看？</summary>
-
-在能存取裝置的電腦／指定環境找實際串口：
-
-```bash
-ls /dev/ttyACM* /dev/ttyUSB*
-```
-
-確認是文字 log 通道、沒有其他程式正在接收，再按指定 baud 設定與讀取：
-
-```bash
-stty -F "<實際串口路徑>" "<指定baud>" raw -echo
-cat "<實際串口路徑>"
-```
-
-Ctrl-C 結束 cat，不代表停止板子。USB 串口需要韌體的對應初始化／建置設定；不是所有 RP2350 程式都會出現這種裝置。主機與板子斷線／重啟後，必要時重新開連線。
-
-</details>
-
-<details>
-<summary>補充小例子：把通用流程套到本 repo 的 Pico 專案</summary>
-
-這只是 [自編練習](../../demo/rp2350-pio-walkthrough/README.md)，不代表新題目的檔名與答案。需已備妥 Pico 2／Arm 工具鏈與 SDK，這裡的具體值來自該專案：
-
-```bash
-cd ~/Development/ncku-srecruit-practice/demo/rp2350-pio-walkthrough
-cmake -S . -B build-pico2 -DPICO_BOARD=pico2
-cmake --build build-pico2
-```
-
-| 通用流程要找的值 | 這份範例的答案 |
-|---|---|
-| CPU 程式入口／核心計算 | main.c，input * 2u + 1u |
-| 板型、架構 | Pico 2，預設 Arm |
-| 建置目錄 | build-pico2 |
-| 韌體檔案 | build-pico2/pico_pio_walkthrough.uf2 |
-| 輸入方式 | 程式裡固定 input=21，沒有接 ROS |
-| 正確結果與觀察方式 | 啟用的 USB 文字輸出：CPU: input=21 result=43 |
-
-把 main.c 的 input 改成 99，存檔、建置、寫入、觀察，預期 CPU result=199。這是在練更新與驗證；換新題目時，重新找上表各欄，不沿用固定數字與檔名。
-
-</details>
-
-來源：[Pico SDK 與建置](https://github.com/raspberrypi/pico-sdk/blob/master/README.md)、[官方板子與 BOOTSEL](https://www.raspberrypi.com/documentation/microcontrollers/pico-series.html)、[USB stdio](https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2_common/pico_stdio_usb/include/pico/stdio_usb.h)。這是通用作答流程；實際參數與答案依題目，未做陌生題目或實板效能驗證。
-
-[回技術目錄](README.md) · [沒有板子時的實作](../../demo/first-development/README.md)
+來源：[RP2350](https://www.raspberrypi.com/products/rp2350/)、[Pico SDK 建置說明](https://github.com/raspberrypi/pico-sdk/blob/master/README.md)、[官方 Pico／BOOTSEL 文件](https://www.raspberrypi.com/documentation/microcontrollers/pico-series.html)、[SDK API 分類](https://www.raspberrypi.com/documentation/pico-sdk/hardware.html)。此頁為查閱流程，未做實板驗證。

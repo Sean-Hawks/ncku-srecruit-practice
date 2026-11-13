@@ -1,5 +1,8 @@
 # 編譯與 Make：改檔之後，怎麼產生新程式
 
+[← 回考場筆記入口](../README.md)
+
+
 **make 讀規則、挑要重建的目標；真正翻譯 C 的是 cc／gcc／clang。** 編譯成功不等於已執行。
 
 ## 先看專案種類
@@ -29,9 +32,9 @@ cc -O2 -Wall -Wextra -pthread -o bin/transfer-engine \
   transfer-engine/main.c transfer-engine/engine.c
 ```
 
-這條要在 section2-3 執行，且 bin 已存在；平常直接讓 make 管理就好。
+這條要在 section2-3 執行，且 bin 已存在；使用原專案 Make 規則即可。
 
-## 日常操作：容器的 /demo/section2-3
+## 本 repo 的既有 Make 目標
 
 ```bash
 make help

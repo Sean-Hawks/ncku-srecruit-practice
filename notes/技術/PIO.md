@@ -1,126 +1,112 @@
-# PIO：追清楚每筆資料放在哪裡
+# PIO：看資料從哪裡移到哪裡
 
-**PIO 是獨立執行短程式的硬體狀態機。CPU 負責設定、餵資料、收結果；PIO 執行自己的指令。** 它不是 Python，也不能直接寫 C 的 `x & 0xFF`。
+[← 回考場筆記入口](../README.md) · [ISA 編碼](ISA與指令編碼.md) · [RP2350 專案](RP2350與PicoSDK.md)
 
-材料同時提示 ISA 編碼與 PIO；CPU 指令與 PIO 指令的格式不同。`out x, 32` 為何會編成 0x6020，見 [ISA 與編碼對照](ISA與指令編碼.md)。
+**PIO 是能自行執行短指令的硬體周邊。** CPU 設定它，再送資料、收結果；PIO 按自己的指令控制接腳或移動 bits。
 
-想實際編譯、寫入板子、從 USB 看結果，先跟著 [RP2350 完整操作](RP2350與PicoSDK.md)，對應 [自編小專案](../../demo/rp2350-pio-walkthrough/README.md)。下面集中解釋資料流與指令。
+官方演練的位元／PIO 節（section2-2） 提供 echo 程式，並特別提醒查閱 PIO 章節。本頁按 RP2350／Pico SDK 說明。
 
-## 你問過的名詞
+## 你問過的 FIFO、RX、push
 
-| 名稱 | 把它想成什麼 |
-|---|---|
-| TX FIFO | CPU 要交給 PIO 的資料佇列 |
-| OSR | PIO 準備用 out 取走資料的 32-bit 移位暫存器 |
-| X、Y | PIO 中途暫放數字的兩個暫存器 |
-| ISR | in 放進資料、準備交出去的 32-bit 移位暫存器 |
-| RX FIFO | PIO 放結果、等 CPU 讀的資料佇列 |
-| push | 指令：把 ISR 的資料放進 RX FIFO，不是 FIFO 本身 |
+| 名稱 | 是什麼 | 本例的作用 |
+|---|---|---|
+| TX FIFO | CPU 送給 PIO 的先進先出佇列 | 暫存待處理資料 |
+| OSR | 32-bit 輸出移位暫存器 | out 從這裡拿 bits |
+| X、Y | 兩個 32-bit 暫存器 | 暫放數字 |
+| ISR | 32-bit 輸入移位暫存器 | in 把 bits 放進這裡 |
+| RX FIFO | PIO 交給 CPU 的先進先出佇列 | 暫存結果 |
+| push | 一條指令 | ISR → RX FIFO |
 
-FIFO 是 First In, First Out，先進先出。硬體有小型儲存空間實作這個 queue；不是一般可任意索引的 C 陣列，也不是 PIO 可以自由配置的 RAM。
+**FIFO 是 queue，硬體用有限儲存空間實作。** 不是任意索引的 RAM。RX/TX 在此按 CPU 收／送理解。push 只把結果放入佇列，CPU 還要讀取才拿得到。
 
-RX/TX 這裡按 CPU 收／送的方向理解。`push` 只先存入 RX FIFO；CPU 還要執行讀取才拿到。
+一般每個狀態機有 TX/RX 各 4 個 32-bit 項目；FIFO join／特殊模式可能改變用途與容量，依設定查。不要假設能無限塞資料。
 
-## 原程式：送 21，原樣回 21
+## 官方 echo，逐行已解讀
 
-[demo_pio.pio](../../demo/section2-2/demo_pio.pio) 假設 autopull 等設定完成：
+以下假設 CPU 已載入程式、啟動狀態機，且設好 32-bit autopull：
 
 ```pio
 .program echo
 .wrap_target
-    out x, 32    ; OSR → X，取 32 bits
-    in  x, 32    ; X → ISR，收 32 bits
+    out x, 32    ; OSR 的 32 bits → X
+    in  x, 32    ; X 的 32 bits → ISR
     push         ; ISR → RX FIFO
 .wrap
 ```
 
 ```text
-CPU → TX FIFO → OSR → X → ISR → RX FIFO → CPU
-           autopull   out   in    push       read
+CPU 寫 21 → TX FIFO → OSR → X=21 → ISR=21 → RX FIFO → CPU 讀到 21
+            autopull     out       in        push
 ```
 
-32 是 bit 數，不是數值 32。`.wrap_target`／`.wrap` 是組譯器的迴圈邊界標記；`.wrap` 本身不額外執行一條跳躍指令。
+32 是位數，並不是把 X 設成數值 32。`.wrap_target`／`.wrap` 是組譯器的迴圈邊界標記，不會各執行一條額外指令。
 
-## 指令怎麼查
+## 指令與會等待的地方
 
-| 指令 | 資料流／用途 |
+| 指令／機制 | 意思 | 等待條件 |
+|---|---|---|
+| pull／autopull | TX FIFO → OSR | 需要資料而 TX 空時，阻塞形式會等 |
+| out | OSR → 指定目的，例如 X／pins | 啟用 autopull 時還受補資料影響 |
+| in | 指定來源 → ISR | 啟用 autopush 時還受 RX 空間影響 |
+| push | ISR → RX FIFO，並清 ISR／其移位計數 | 預設阻塞，RX 滿會等 |
+| mov x, y | Y 的值複製到 X | 不會消耗 FIFO 項目 |
+| set x, 7 | X 設為小常數 7 | 立即數只有 5 bits，0..31 |
+| wait | 等指定接腳／IRQ 條件 | 條件尚未成立 |
+| jmp | 按條件決定下一條指令 | 條件形式看手冊 |
+
+autopull 是自動補 OSR；autopush 是自動送出 ISR。**手動 push 與 autopush 若沒配合，可能多送一筆或送出非預期資料。**
+
+## 改哪一行，會變成什麼
+
+以下以每筆處理完整 32 bits、其他設定相同為前提，是已解讀的對照：
+
+| 指令片段 | 送 21 的結果 | 原因 |
+|---|---|---|
+| `out x,32; in x,32; push` | 21 | 寫 X 再讀 X |
+| `out y,32; in y,32; push` | 21 | 兩邊一起改成 Y |
+| `out y,32; in x,32; push` | X 的舊值 | 寫 Y，卻從 X 讀 |
+| `out x,32; set x,7; in x,32; push` | 7 | 輸入被消耗，但 X 被常數覆蓋 |
+| 只把 32 改成 8 | 要看完整設定 | 只移 8 bits，方向、累積量與 threshold 都會影響結果 |
+
+分號在這張表用來分隔指令；實際 `.pio` 要一行一條，分號後的內容是註解。
+
+## CPU 端常見 API：不是寫了 .pio 就會自己跑
+
+| 階段 | Pico SDK API／設定 | 用途 |
+|---|---|---|
+| 選資源 | `pio_claim_unused_sm`、`pio_add_program` | 取得狀態機、載入指令 |
+| 取得設定 | `echo_program_get_default_config(offset)` | 由組譯產生，名稱隨 .program 改變 |
+| 移位設定 | `sm_config_set_out_shift(&c, true, true, 32)` | 此例：右移、autopull、threshold 32 |
+| 移位設定 | `sm_config_set_in_shift(&c, true, false, 32)` | 此例：右移、不 autopush，配手動 push |
+| 初始化／啟用 | `pio_sm_init`、`pio_sm_set_enabled` | 裝入設定、開始執行 |
+| CPU 送資料 | `pio_sm_put_blocking(pio, sm, value)` | 寫 TX，滿了會等 |
+| CPU 讀結果 | `pio_sm_get_blocking(pio, sm)` | 讀 RX，空的會等 |
+
+上表是 API 對照，並非獨立完整程式。`pio`、`sm`、`offset` 都來自實際專案的資源配置。
+
+CMake 的 `pico_generate_pio_header` 把 `.pio` 組成 C 可引用的標頭；主程式還需 include 產生的 `.pio.h`、連結 `hardware_pio`。若控制接腳，另外查 pin mapping、方向與時鐘設定。
+
+## PIO 的編碼和 CPU 不同
+
+`out x, 32` 在沒有額外 delay／side-set 時編成 `0x6020`：
+
+| bits | 含義 |
 |---|---|
-| `pull` | TX FIFO → OSR；本例用 autopull 自動補資料 |
-| `out x, 32` | OSR → X |
-| `in x, 32` | X → ISR |
-| `push` | ISR → RX FIFO；未寫 noblock 時為阻塞式 |
-| `mov x, y` | 將 Y 複製到 X，來源 Y 仍在 |
-| `set x, 7` | 設 X 為小常數 7；set 的立即數只有 5 bits |
-| `jmp 標籤` | 跳到標籤；其他條件形式依指令手冊 |
+| 15..13 = 011 | OUT |
+| 12..8 = 0 | 此例沒有 delay／side-set |
+| 7..5 = 001 | 目的地 X |
+| 4..0 = 00000 | OUT 的數量欄位中，0 編碼代表 32 bits |
 
-out/in 也可用其他來源目的，但不是任意組合都合法。位元截取題須一起看 shift 方向、bit 數、threshold、autopull/autopush。
+PIO 指令是 16 bits；中間 5 bits 如何分配給 delay／side-set 取決於設定。JMP 的目標是 PIO 指令位址，不能套 CPU 的 byte 位址規則。
 
-## 實作練習：改程式，不只背名稱
+## 卡住時查表
 
-**任務 A：改用 Y 暫存，輸入輸出不變。** 把兩行一起改：
-
-```pio
-out y, 32
-in  y, 32
-push
-```
-
-只改 out y、保留 in x，就是「寫 Y、卻讀 X」。若 X 原本是 7，送 99 也會回 7。
-
-**任務 B：每筆輸入都回固定值 7。** 保留 out 消耗輸入，然後改要回傳的 X：
-
-```pio
-out x, 32
-set x, 7
-in  x, 32
-push
-```
-
-測試輸入 `0、21、99`，都應回 7。原官方 section2-2 只有 .pio，供閱讀；新增的 [完整自編專案](../../demo/rp2350-pio-walkthrough/README.md) 已補 CPU 啟動與 CMake，仍需要 SDK、工具鏈與板子才能實際執行。
-
-<details>
-<summary>考場有 Pico SDK 時：CPU 端怎麼接 echo</summary>
-
-以下是**片段**，放入已正確建置的 Pico SDK 專案。需要 include `hardware/pio.h` 和組譯產生的 `demo_pio.pio.h`，並連結 hardware_pio。
-
-```c
-PIO pio = pio0;
-uint sm = pio_claim_unused_sm(pio, true);
-uint offset = pio_add_program(pio, &echo_program);
-pio_sm_config c = echo_program_get_default_config(offset);
-sm_config_set_out_shift(&c, true, true, 32);  // 右移、autopull、32-bit
-sm_config_set_in_shift(&c, true, false, 32);  // 右移、不自動 push
-pio_sm_init(pio, sm, offset, &c);
-pio_sm_set_enabled(pio, sm, true);
-
-pio_sm_put_blocking(pio, sm, 21u);           // CPU 寫 TX FIFO
-uint32_t answer = pio_sm_get_blocking(pio, sm); // CPU 讀 RX FIFO
-// 原版 answer=21；任務 B answer=7。
-```
-
-CMake 對**實際 executable target**補上，這裡假設 target 名叫 app：
-
-```cmake
-pico_generate_pio_header(app ${CMAKE_CURRENT_LIST_DIR}/demo_pio.pio)
-target_link_libraries(app pico_stdlib hardware_pio)
-```
-
-以上是片段；要跟著完整專案建置與寫 UF2，見 [Pico SDK 操作](RP2350與PicoSDK.md)。未在實體板驗證。
-
-</details>
-
-## 卡住時看誰在等誰
-
-| 症狀 | 檢查 |
+| 症狀 | 先查 |
 |---|---|
-| CPU get 一直等 | PIO 有啟動？有輸入？有 push 或 autopush？ |
-| PIO 在等輸入 | TX FIFO 有資料？OSR 補資料設定是否正確？ |
-| 送幾筆後停住 | RX FIFO 滿了，CPU 是否一直送卻沒讀？ |
-| 少了、重複了輸出 | 手動 push 與 autopush 是否同時啟用？實際產生幾筆？ |
-| 改 32 為 8 結果怪 | 移位方向、threshold、ISR 累積與 OSR 消耗是否配套？ |
+| get 一直不回來 | 狀態機有啟動？TX 有資料？有 push／autopush？ |
+| 送幾筆就停止 | RX 是否滿？CPU 是否只送不讀？ |
+| bits 順序或數量錯 | shift 方向、threshold、每次 in/out 位數、ISR 累積 |
+| 多一筆／少一筆 | 手動 push 與 autopush、條件式 push、實際迴圈次數 |
+| 接腳沒反應 | GPIO 功能選擇、pin mapping、方向、clock、wait 條件 |
 
-先採「送一筆 → 收一筆」驗證；批次傳輸時要安排同時排空輸出，避免有限 FIFO 互等。
-
-來源：[RP2350 datasheet，PIO 章節](https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf)、[SDK PIO API](https://www.raspberrypi.com/documentation/pico-sdk/hardware.html#group_hardware_pio)、[pio.h 設定與收送原始碼](https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2_common/hardware_pio/include/hardware/pio.h)。
-
-[回技術目錄](README.md)
+來源：[RP2350 datasheet：搜尋 PIO、Instruction Set、FIFO](https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf)、[PIO API](https://www.raspberrypi.com/documentation/pico-sdk/hardware.html#group_hardware_pio)、[設定與 FIFO 定義](https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2_common/hardware_pio/include/hardware/pio.h)、[指令編碼](https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2_common/hardware_pio/include/hardware/pio_instructions.h)。資料流與指令編碼已核對；未做實板驗證。

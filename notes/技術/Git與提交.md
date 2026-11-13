@@ -1,5 +1,8 @@
 # Git 與提交：知道自己在哪個 repo、改了什麼
 
+[← 回考場筆記入口](../README.md)
+
+
 **Git commit 存在本機；push 才傳上遠端；pull 會抓遠端並整合到本機。** 不要在不確定的資料夾一直 git init。
 
 ## 拉這份筆記：在主機
@@ -67,7 +70,7 @@ git push
 
 ## 有修改，pull 不過
 
-先 `git diff` 看是你的練習還是正式作答。可選擇把確定要保留的工作 commit；或暫存到 stash：
+先 `git diff` 看是本機筆記修改還是正式作答。可選擇把確定要保留的工作 commit；或暫存到 stash：
 
 ```bash
 git stash push -u -m "before updating notes"

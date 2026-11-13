@@ -1,139 +1,99 @@
-# ROS 2：把接收、處理、發布接起來
+# ROS 2：程式之間怎麼傳資料
 
-**node 是執行功能的單位；topic 是訊息通道；message type 規定資料格式。** 一個程式可以有多個 node，node 名稱不等於檔名。
+[← 回考場筆記入口](../README.md) · [命令集中查](../操作清單.md)
+
+**兩個程式的變數不會自己互通。ROS 2 讓它們依約定的 topic 名稱、訊息型別交換資料。**
+
+## 三個名詞與你問過的差別
+
+| 名詞 | 意思 | 本 repo 例子 |
+|---|---|---|
+| node | ROS 裡執行某項功能的單位 | /publisher、/processor |
+| topic | 訊息通道 | /number、/double |
+| message type | 通道上的資料格式 | std_msgs/msg/Int32，含 data 欄位 |
 
 ```text
-publisher.py → /number → processor.py → /double → echo
-                            收到才呼叫 on_msg()
+publisher.py → /number → processor.py 的 on_msg() → /double → echo
 ```
 
-先讀 [processor.py](../../demo/section2-1/processor.py)。目前公式是 `3*x+1`，不是原版的 `2*x`；/double 只是名稱。
+- `node list` 列執行者；`topic list` 列通道。
+- `python3 processor.py` 啟動你的處理程式：訂閱輸入、計算、發布結果。
+- `ros2 topic echo /double` 啟動觀察者：接收並印出 /double，沒有幫你跑 processor 的計算。
+- `echo /number` 可以直接收到 publisher 的輸入，不需要 processor。多個訂閱者可各自收到訊息。
+- processor 沒輸入時等待是正常的；`rclpy.spin` 持續處理事件，收到訊息才叫 callback。
 
-## 環境
+## /double 的名稱不決定計算
 
-以下都在**容器**。每個終端機先在主機執行 `docker exec -it srecruit-demo bash`。
-
-```bash
-source /opt/ros/jazzy/setup.bash
-cd /demo/section2-1
-```
-
-考場 ROS 版本可能不同，先看 `/opt/ros` 與題目文件。找不到 `ros2`，先查環境是否 source，不是先改 Python。
-
-## 最常用指令
-
-| 想查什麼 | 指令 |
-|---|---|
-| 哪些 node 在跑 | `ros2 node list` |
-| processor 的接線 | `ros2 node info /processor` |
-| 哪些 topic、什麼型別 | `ros2 topic list -t` |
-| 兩端數量、詳細 QoS | `ros2 topic info /number --verbose` |
-| Int32 裡有什麼欄位 | `ros2 interface show std_msgs/msg/Int32` |
-| 輸入有沒有資料 | `ros2 topic echo /number` |
-| 輸出值 | `ros2 topic echo /double` |
-| 發布頻率 | `ros2 topic hz /number` |
-
-`node list` 查執行者；`topic list` 查通道。通道存在，不代表現在有資料。
-
-`node info /processor`：Subscribers 是它接收的來源；Publishers 是它發布的去處。先關注 /number 與 /double；/rosout、parameter_events 與參數服務是附帶功能。
-
-## 固定輸入測試：三個終端機
-
-停止你自己的隨機 publisher，避免干擾；不要同時跑兩份 processor。
-
-**A，處理：**
-
-```bash
-python3 processor.py
-```
-
-**B，先啟動觀察，保持執行：**
-
-```bash
-ros2 topic echo /double
-```
-
-**C，送一筆：**
-
-```bash
-ros2 topic pub --once /number std_msgs/msg/Int32 '{data: 21}'
-```
-
-目前應收到 `data: 64`。沒輸入時 processor 安靜等待是正常的。修改 Python 後：`:w` → A 按 Ctrl-C → 重跑 → C 重送。
-
-`echo /number` 自己就是接收者，不需要 processor。多個接收者都可以收到同一筆，並不是誰先拿就把別人的資料取走。
-
-## 對照 Python 這幾行
+對照 [processor.py](../../demo/section2-1/processor.py)：
 
 ```python
-self.sub = self.create_subscription(Int32, INPUT_TOPIC, self.on_msg, 10)
 self.pub = self.create_publisher(Int32, OUTPUT_TOPIC, 10)
+self.sub = self.create_subscription(Int32, INPUT_TOPIC, self.on_msg, 10)
+# OUTPUT_TOPIC='/double'；INPUT_TOPIC='/number'
 
 def on_msg(self, received):
-    out = Int32()                       # 建一個要送出的訊息物件
-    out.data = received.data * 3 + 1    # .data 是物件的整數欄位
-    self.pub.publish(out)              # self.pub 已記得目的 topic
+    out = Int32()                      # 建要送出的訊息
+    out.data = received.data * 3 + 1   # 這行才決定算法
+    self.pub.publish(out)             # pub 已經記得送往 /double
 ```
 
-`rclpy.spin(node)` 讓 executor 持續處理事件，收到訊息才呼叫 callback。這種寫法的 `10` 是訊息歷史深度；不是十秒或乘十，也不是無條件保證每筆都收到。
+| 哪裡改變 | 會發生什麼 |
+|---|---|
+| 計算改成 `received.data * 2` | 輸入 21 → 42，topic 名稱照設定 |
+| 本 repo 現值 `received.data * 3 + 1` | 輸入 21 → 64 |
+| 訂閱 /number 改成 /numbers | 發到 /number 的資料接不到 |
+| 輸出 topic 改名 | echo 也要跟著看新名稱 |
 
-## 實作題：收到打包整數，回傳兩欄位的和
+`10` 是這種 API 寫法的訊息歷史深度，不是 10 Hz、十秒或乘十。`.data` 是訊息的整數欄位；不是整個訊息物件。
 
-自編練習，輸入限 0..65535。bits 15..8 是 A，bits 7..0 是 B。**只替換 on_msg 裡的計算段，保留原本 print 與 publish：**
+## 怎麼讀 node info
 
-```python
-out = Int32()
-packed = received.data
-a = (packed >> 8) & 0xFF
-b = packed & 0xFF
-out.data = a + b
-self.pub.publish(out)
+```text
+Subscribers:
+  /number: std_msgs/msg/Int32
+Publishers:
+  /double: std_msgs/msg/Int32
 ```
 
-| C 終端機送入 data | 十六進位 | B 應收到 |
+意思是「這個 node 從 /number 接收，向 /double 發布，兩邊格式都是 Int32」。這只證明接線登記，**不證明已有資料通過**。
+
+`/rosout`、`/parameter_events`、各種參數 Service Servers 是常見附帶介面；查本例資料流先找 /number、/double。Service 是請求／回應介面，與持續發布的 topic 分開看。
+
+## 查資料在哪一段斷掉
+
+以下名稱是本 repo 範例，正式題目替換成其名稱。
+
+| 目的 | 命令 | 如何解讀 |
 |---|---|---|
-| 773 | 0x0305 | 8 |
-| 0 | 0x0000 | 0 |
-| 255 | 0x00FF | 255 |
-| 256 | 0x0100 | 1 |
-| 65535 | 0xFFFF | 510 |
+| 程式有登記 node 嗎 | `ros2 node list` | 沒看到就查啟動、環境與錯誤 |
+| 接收／輸出去哪裡 | `ros2 node info /processor` | 名稱、型別是否符合題目 |
+| 所有通道與型別 | `ros2 topic list -t` | /number 與 /numbers 是不同通道 |
+| 端點數與 QoS | `ros2 topic info /number --verbose` | 有 publisher/subscriber，QoS 是否相容 |
+| 訊息有哪些欄位 | `ros2 interface show std_msgs/msg/Int32` | 例如 `int32 data` |
+| 輸入是否真的到達 | `ros2 topic echo /number` | 有資料再往 callback、輸出查 |
+| 輸出是否真的到達 | `ros2 topic echo /double` | echo 本身也會增加訂閱者 |
+| 觀察收到的頻率 | `ros2 topic hz /number` | 不等於整條路的處理延遲 |
+| 發一筆已知輸入 | `ros2 topic pub --once /number std_msgs/msg/Int32 '{data: 21}'` | 接收者應先啟動；隨機來源同時跑會混入其他值 |
 
-例如：
+## 明明都在跑，卻互相看不到
 
-```bash
-ros2 topic pub --once /number std_msgs/msg/Int32 '{data: 773}'
-```
+| 檢查 | 原因 |
+|---|---|
+| 每個 shell 都有載入同一套 ROS 環境 | 找不到 ros2／package 通常先查 source |
+| `ROS_DOMAIN_ID` 是否相同 | 不同 domain 通常不互相發現 |
+| topic 完整名稱與 type | namespace、remap 都可能改名 |
+| QoS 的 reliability／durability | 有端點不保證相容 |
+| 容器／主機的網路 | discovery 需要可互通的環境 |
 
-做完要回原公式，就把計算段換回 `out.data = received.data * 3 + 1`。
+發布者是 best effort 時，觀察可使用：`ros2 topic echo /實際topic --qos-reliability best_effort`。先看 `topic info --verbose`，不要盲改 QoS。
 
-## 沒結果時，照順序縮小範圍
+## .py 與 ROS package 的啟動方式
 
-1. `node list`：程式有跑嗎？
-2. `node info`：發送、接收的 topic 完全相同嗎？/number 與 /numbers 不同。
-3. `topic list -t`、`interface show`：型別、欄位一致嗎？
-4. `echo /number`：輸入到了嗎？有輸入再查 callback、輸出。
-5. `topic info --verbose`：是否有不相容 QoS？不同終端的 ROS_DOMAIN_ID 是否相同？
+| 專案形式 | 對應方式 |
+|---|---|
+| 本 repo 的獨立 Python 檔 | `python3 processor.py`，改檔後重啟 |
+| 題目提供 package／workspace | 依 README 用 colcon build，再 source install/setup.bash、ros2 run／launch |
 
-QoS 不要盲改：sensor 類 topic 可能使用 best effort；需對照實際發布者。例如發布者是 best effort 時，可試 `ros2 topic echo /實際topic --qos-reliability best_effort`。兩邊還須在可互相發現的網路環境。
+參數、套件名、launch 檔不是由 topic 名稱推導。容器入口與 source 命令見 [操作清單](../操作清單.md)。
 
-<details>
-<summary>題目如果給 ROS package，而非直接跑 .py</summary>
-
-在含 src/ 的 ROS workspace 根目錄，且工具已預裝：
-
-```bash
-colcon build --packages-select <package名稱>
-source install/setup.bash
-ros2 run <package名稱> <executable名稱>
-ros2 launch <package名稱> <launch檔名>
-```
-
-上面先替換 `<...>`。現有 demo 是直接 `python3 processor.py`，沒有對應的 colcon package。
-
-有參數介面才用 `ros2 param list /node名稱`、`ros2 param get /node名稱 參數名`；目前公式沒有做成參數。
-
-</details>
-
-來源：[ROS 2 Jazzy topic 教學](https://github.com/ros2/ros2_documentation/blob/jazzy/source/Tutorials/Beginner-CLI-Tools/Understanding-ROS2-Topics/Understanding-ROS2-Topics.rst)、[rclpy Node 原始碼](https://github.com/ros2/rclpy/blob/jazzy/rclpy/rclpy/node.py)、[QoS 相容性](https://github.com/ros2/ros2_documentation/blob/jazzy/source/Concepts/Intermediate/About-Quality-of-Service-Settings.rst)。
-
-[回技術目錄](README.md) · [接著練位元](位元運算.md)
+來源：[ROS 2 Jazzy topic 教學](https://github.com/ros2/ros2_documentation/blob/jazzy/source/Tutorials/Beginner-CLI-Tools/Understanding-ROS2-Topics/Understanding-ROS2-Topics.rst)、[rclpy Node API](https://github.com/ros2/rclpy/blob/jazzy/rclpy/rclpy/node.py)、[QoS 相容性](https://github.com/ros2/ros2_documentation/blob/jazzy/source/Concepts/Intermediate/About-Quality-of-Service-Settings.rst)。
