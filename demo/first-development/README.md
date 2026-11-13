@@ -200,7 +200,7 @@ python3 parallel.py --workers 3 --jobs 100
 
 應看到 PASS、各 worker 完成筆數與耗時。回傳順序不必一致，還原後的答案必須一致；工作很短時，多 worker 可能更慢。耗時不含 worker 程序建立／關閉，但包含主機 thread 排程，不能當成板子或 eBNN 的效能。
 
-真板子與 eBNN 接法看 [完整作答流程](../../notes/技術/RP2350-eBNN從單板到多板.md)。[回技術目錄](../../notes/技術/README.md)
+真板子與 eBNN 接法看 [多板工作交接](../../notes/技術/平行運算.md#封包與多板交接)。[回考場入口](../../notes/README.md#按題目找資料)
 
 ## 已驗證（2026-11-13）
 
