@@ -1,5 +1,9 @@
 # 考前練習：使用 `ros2` CLI 觀察 ROS 2 系統
 
+[← demo 操作回顧](../../notes/demo操作回顧.md) · [原本的改前改後教學](../../notes/例題/02-ROS訊息.md)
+
+> 操作步驟保留，目前預期輸出已對齊此 repo 的 `3*x+1`：21→64、-5→-14、0→1、100→301。官方原版是 `2*x`，才會得到42、-10、0、200；如果你另外改了公式，以實際程式為準。
+
 這份練習的目的，是讓你在考試前熟悉 ROS 2 的基本操作，以及如何使用 `ros2` CLI（Command-Line Interface） 觀察系統中的 node、topic 與訊息傳輸情形。
 
 完成本練習後，你應該能在不查看程式內部實作的情況下，使用 `ros2` 指令：
@@ -294,7 +298,7 @@ ros2 node list
 
 接下來加入第二個 node：`processor.py`。
 
-這支程式已經寫好，不需要修改。它會作為 `/number` 的 **subscriber**，接收 publisher 發出的整數；收到資料後，將數值乘以 2，再把結果發佈到 `/double`。
+這支程式已經寫好，不需要修改。它會作為 `/number` 的 **subscriber**，接收 publisher 發出的整數；收到資料後，將數值乘以3再加1，再把結果發佈到 `/double`（官方原版是乘以2）。
 
 因此 `processor.py` 雖然是 `/number` 的 subscriber，同時也會作為 `/double` 的 publisher：
 
@@ -419,7 +423,7 @@ ros2 topic echo /double
 
 應該可以持續看到 `/double` 上的資料。
 
-`processor.py` 會將從 `/number` 收到的數值乘以 2，再發布到 `/double`。
+`processor.py` 目前將從 `/number` 收到的數值乘以3再加1，再發布到 `/double`；topic 名稱不會決定算法。
 
 這個 `echo` 請先保持執行，下一節還會使用。
 
@@ -480,7 +484,7 @@ publishing #1: std_msgs.msg.Int32(data=21)
 而終端機 C 應該收到：
 
 ```text
-data: 42
+data: 64
 ---
 ```
 
@@ -493,7 +497,7 @@ ros2 topic pub --once /number std_msgs/msg/Int32 "{data: -5}"
 預期輸出：
 
 ```text
-data: -10
+data: -14
 ---
 ```
 
@@ -504,11 +508,11 @@ data: -10
 100
 ```
 
-確認輸出分別為：
+目前公式的輸出分別為：
 
 ```text
-0
-200
+1
+301
 ```
 
 這裡可以看到兩個常用 CLI 指令實際扮演的角色：
@@ -585,3 +589,4 @@ container 會隨之停止並刪除。
 如果先離開第一個 shell，其他透過 `docker exec` 進入的終端機可能會跟著中斷，這是正常現象。
 
 本練習不需要修改任何檔案。之後若想重新操作，再次執行 [`demo/README.md`](../README.md) 中的 `docker run` 指令即可重新開始。
+> 容器結束方式：上面的退出／刪除說明對應原教學 docker run --rm 的流程。若用 docker exec 進入已存在的家用容器，exit 只結束該 shell，不會自動刪除容器或掛載的主機檔案。
