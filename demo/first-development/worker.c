@@ -13,10 +13,7 @@ static uint32_t compute(uint32_t input) {
 // 線上格式規定 little-endian：第一個 byte 是最低的八位。
 // 不直接把 bytes 轉成 uint32_t*，避免對齊與主機 endian 的依賴。
 static uint32_t load_le32(const unsigned char *p) {
-    return (uint32_t)p[0]
-         | ((uint32_t)p[1] << 8)
-         | ((uint32_t)p[2] << 16)
-         | ((uint32_t)p[3] << 24);
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 
 static void store_le32(unsigned char *p, uint32_t value) {
@@ -42,13 +39,12 @@ int main(void) {
             return 1;
         }
         uint32_t answer = compute(input);
-        store_le32(reply, id);          // 把同一個工作編號帶回，避免認錯答案。
+        store_le32(reply, id); // 把同一個工作編號帶回，避免認錯答案。
         store_le32(reply + 4, answer);
 
         // stdout 是 binary 通道，不能混入 printf("debug...")。
         // 錯誤文字放 stderr；Python 只從 stdout 收八 bytes。
-        if (fwrite(reply, 1, sizeof reply, stdout) != sizeof reply
-            || fflush(stdout) == EOF) { // flush：立刻送出，不留在 C 輸出緩衝區。
+        if (fwrite(reply, 1, sizeof reply, stdout) != sizeof reply || fflush(stdout) == EOF) { // flush：立刻送出，不留在 C 輸出緩衝區。
             fputs("worker: cannot send reply\n", stderr);
             return 1;
         }
@@ -57,5 +53,5 @@ int main(void) {
         fputs("worker: input read failed\n", stderr);
         return 1;
     }
-    return 0;  // 主機關閉輸入，工作完成。
+    return 0; // 主機關閉輸入，工作完成。
 }
