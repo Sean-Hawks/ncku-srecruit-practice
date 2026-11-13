@@ -14,7 +14,5 @@
 *.token
 .DS_Store
 
-# Local agent instructions (Claude / Codex)
-CLAUDE.md
-CLAUDE.local.md
+# Local agent instructions
 AGENTS.md
