@@ -10,6 +10,8 @@ The repository intentionally excludes generated binaries, build output, credenti
 
 ## 八小時訓練與考場筆記
 
+[分技術速查：Docker、ROS 2、ESP32、eBNN、PIO、平行運算、資料搬運、位元與常用指令](notes/技術/README.md)
+
 [直接讀有註解的程式：從問過的問題找位置](notes/程式註解導讀.md)
 
 [操作清單：哪些要理解，哪些指令直接複製](notes/操作清單.md)
