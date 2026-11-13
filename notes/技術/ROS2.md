@@ -115,4 +115,24 @@ Publishers:
 
 參數、套件名、launch 檔不是由 topic 名稱推導。容器入口與 source 命令見 [操作清單](../操作清單.md)。
 
+## 題目要求紀錄資料時：rosbag
+
+**rosbag保存ROS訊息與時間資訊，供之後重播或檢查。** 若題目要求交紀錄，topics、路徑、錄製時機與要提交的檔案都照本題說明；沒有要求時不用加這一步。
+
+在已載入ROS、工具已提供的shell，替換所有 `<...>`：
+
+```bash
+ros2 bag record -o "<指定輸出目錄>" "<指定topic1>" "<指定topic2>"
+```
+
+保持錄製，再由其他終端執行題目指定流程，結束後在錄製終端Ctrl-C停止。接著查紀錄：
+
+```bash
+ros2 bag info "<同一輸出目錄>"
+```
+
+確認topic、型別、訊息數與題目要求相符；錄不到資料時先查topic是否真的有發布。ROS 2命令是 **ros2 bag record**，歷屆文章寫的ros bag record不應直接照抄。
+
+來源：[ROS 2 Jazzy rosbag官方教學](https://github.com/ros2/ros2_documentation/blob/jazzy/source/Tutorials/Beginner-CLI-Tools/Recording-And-Playing-Back-Data/Recording-And-Playing-Back-Data.rst)。
+
 來源：[ROS 2 Jazzy topic 教學](https://github.com/ros2/ros2_documentation/blob/jazzy/source/Tutorials/Beginner-CLI-Tools/Understanding-ROS2-Topics/Understanding-ROS2-Topics.rst)、[rclpy Node API](https://github.com/ros2/rclpy/blob/jazzy/rclpy/rclpy/node.py)、[QoS 相容性](https://github.com/ros2/ros2_documentation/blob/jazzy/source/Concepts/Intermediate/About-Quality-of-Service-Settings.rst)。
