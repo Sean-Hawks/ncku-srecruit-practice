@@ -2,6 +2,8 @@
 
 **PIO 是獨立執行短程式的硬體狀態機。CPU 負責設定、餵資料、收結果；PIO 執行自己的指令。** 它不是 Python，也不能直接寫 C 的 `x & 0xFF`。
 
+想實際編譯、寫入板子、從 USB 看結果，先跟著 [RP2350 完整操作](RP2350與PicoSDK.md)，對應 [自編小專案](../../demo/rp2350-pio-walkthrough/README.md)。下面集中解釋資料流與指令。
+
 ## 你問過的名詞
 
 | 名稱 | 把它想成什麼 |
@@ -72,7 +74,7 @@ in  x, 32
 push
 ```
 
-測試輸入 `0、21、99`，都應回 7。本 repo 只有 .pio，沒有硬體啟動程式，所以目前可編輯／逐行追蹤；真正執行需下方 SDK 接線與板子環境。
+測試輸入 `0、21、99`，都應回 7。原官方 section2-2 只有 .pio，供閱讀；新增的 [完整自編專案](../../demo/rp2350-pio-walkthrough/README.md) 已補 CPU 啟動與 CMake，仍需要 SDK、工具鏈與板子才能實際執行。
 
 <details>
 <summary>考場有 Pico SDK 時：CPU 端怎麼接 echo</summary>
@@ -101,7 +103,7 @@ pico_generate_pio_header(app ${CMAKE_CURRENT_LIST_DIR}/demo_pio.pio)
 target_link_libraries(app pico_stdlib hardware_pio)
 ```
 
-這不是完整專案；建置與 UF2 見 [Pico SDK](RP2350與PicoSDK.md)。未在實體板驗證。
+以上是片段；要跟著完整專案建置與寫 UF2，見 [Pico SDK 操作](RP2350與PicoSDK.md)。未在實體板驗證。
 
 </details>
 

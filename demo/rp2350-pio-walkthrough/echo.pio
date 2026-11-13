@@ -1,0 +1,8 @@
+; 自編練習：結構沿用官方練習的 echo 概念。
+; CPU 端已設定 autopull=true、threshold=32、autopush=false。
+.program echo
+.wrap_target
+    out x, 32   ; OSR → X：拿到 CPU 送來的整筆資料。
+    in  x, 32   ; X → ISR：準備送回去，沒有做加減乘除。
+    push        ; ISR → RX FIFO：CPU 的 get_blocking 才能取得結果。
+.wrap

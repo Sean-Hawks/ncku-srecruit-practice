@@ -4,6 +4,7 @@
 **/*.o
 **/*.out
 **/__pycache__/
+/demo/rp2350-pio-walkthrough/build*/
 
 # Local environment and secrets
 .env

@@ -21,7 +21,7 @@
 | [Git 與提交](Git與提交.md) | 拉筆記、tracking 錯誤、提交前檢查 | 目前 Git repo |
 | [序列通訊與封包](序列通訊與封包.md) | USB serial、文字／binary、拆包、request ID | Python 標準函式庫封包題；串口需板子 |
 | [效能量測與除錯](效能量測與除錯.md) | 正確後怎麼變快、卡在哪、用什麼工具 | Linux；部分工具需已預裝 |
-| [RP2350 與 Pico SDK](RP2350與PicoSDK.md) | 看到 pico/stdlib.h、CMake、UF2 | 需 Pico SDK、交叉編譯器與對應板 |
+| [RP2350 與 Pico SDK](RP2350與PicoSDK.md) | 插板子、編譯、寫 UF2、USB 看結果 | 附完整自編專案；需 SDK、工具鏈與板子 |
 
 ## 按症狀找
 
