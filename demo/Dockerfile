@@ -1,41 +1,32 @@
-# =============================================================================
-#  srecruit-demo — the pre-exam practice environment (doc/demo/)
+# 此檔是建立 image 的規則，不是日常執行每支程式的指令。
+# image：裝好 ROS/Python/編譯器的模板；container：依模板啟動的執行環境。
+# 在專案根目錄建置：docker build -t srecruit-demo demo/
 #
-#  One image for all three practices, at the same paths doc/demo/ names:
-#    /demo/section2-1   ros2 CLI practice      (ROS 2 Jazzy, rclpy)
-#    /demo/section2-2   bitwise + PIO reading  (cc)
-#    /demo/section2-3   pthread + DMA concepts (gcc, make)
+# 日常用法、掛載與三個終端機的命令可直接查 notes/操作清單.md，不必背。
+# COPY 是建置 image 當時的快照；改主機檔案不會自動改這份 image。
+# bind mount 則把主機資料夾接到容器 /demo，兩邊直接讀寫同一份檔案。
+# 目前練習掛載的是 ~/Development/ncku-srecruit-practice/demo。
+# 在哪個主機資料夾執行 docker exec，不會改變已建立的掛載。
+# 改掛載的 Python 檔：存檔、重啟該 Python 程式即可，不必每次重建 image。
+# 修改此 Dockerfile/依賴環境時，再考慮重新 docker build。
 #
-#  Standalone on purpose: no pico-sdk, no cross toolchain, no judge, and not part
-#  of docker/build.sh's chain. The build context is this folder alone, so nothing
-#  else in the repo can reach the image and it can be handed out before the exam.
-#  No board and no --privileged needed.
-#
-#  Build context = this folder:
-#      docker build -t srecruit-demo demo/
-#
-#  Run (the 2-1 practice needs three shells in one container):
-#      docker run --rm -it --name srecruit-demo srecruit-demo
-#      docker exec -it srecruit-demo bash     # each extra terminal
-#
-#  Files live in the container and go away with --rm; to keep edits, bind-mount
-#  a practice folder over its path with -v.
-#
-#  DEMO_BASE_IMAGE overrides the upstream base — point it at a registry mirror
-#  when Docker Hub is unreachable.
-# =============================================================================
+# 可改：需要其他 base image 或鏡像來源時，從 build arg 指定。
 ARG DEMO_BASE_IMAGE=ros:jazzy-ros-core
 FROM ${DEMO_BASE_IMAGE}
 
+# 建置 image 時安裝 C 編譯器、標準函式庫開發檔和 make。
 RUN apt-get update \
     && apt-get install -y --no-install-recommends gcc libc6-dev make \
     && rm -rf /var/lib/apt/lists/*
 
+# . 指建置上下文 demo/；把當時的檔案複製到 image 的 /demo。
+# 啟動 container 若再掛載 /demo，就會看到掛載來源的內容。
 COPY . /demo
 
-# The base's entrypoint sources ROS only for the first shell; `docker exec`
-# bypasses it, so extra terminals get ROS from .bashrc.
+# 額外 docker exec 開的 shell 也需要 ROS 環境。
+# 這裡設定 root 的互動式 bash；使用其他帳號需在該帳號 shell 做相同設定。
 RUN echo 'source /opt/ros/jazzy/setup.bash' >> /root/.bashrc
 
+# 預設工作目錄與啟動程式；啟動後進到 /demo 的 bash。
 WORKDIR /demo
 CMD ["bash"]

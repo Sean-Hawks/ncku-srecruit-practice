@@ -10,6 +10,8 @@ The repository intentionally excludes generated binaries, build output, credenti
 
 ## 八小時訓練與考場筆記
 
+[直接讀有註解的程式：從問過的問題找位置](notes/程式註解導讀.md)
+
 [操作清單：哪些要理解，哪些指令直接複製](notes/操作清單.md)
 
 先從 [第 01 題：改一行位元運算](notes/例題/01-位元運算.md) 開始。每題都有原碼位置、改前改後與預期輸出；其餘例題與八小時安排見 [練習入口](notes/README.md)。
