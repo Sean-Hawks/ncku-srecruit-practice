@@ -2,6 +2,105 @@
 
 [← 回考場筆記入口](../README.md) · [ISA](ISA與指令編碼.md) · [PIO](PIO.md)
 
+## 從 GitLab 到板子：先看這條路
+
+**GitLab 放原始碼；考場電腦下載、編譯；板子執行寫入的韌體。** 以題目給微控制器的 C/C++ 專案為前提，通常是這個流程：
+
+```text
+GitLab → clone 到電腦 → 找板端專案 → build 產生韌體 → flash／upload 到板子
+                         主機程式留在電腦 ←→ USB／UART等指定連線 ←→ 板子
+```
+
+你以前用 PlatformIO 按 Build／Upload，就是在做其中兩步。**git push 是交回 GitLab，並不會把程式寫進板子。**
+
+### 1 先把 repo 下載到考場電腦
+
+在 GitLab 專案按 Code，複製提供的 Clone URL；登入方式、分支依現場說明。以下 `<...>` 都要替換：
+
+```bash
+git clone "<從GitLab複製的網址>"
+cd "<下載後的專案資料夾>"
+```
+
+若題目已把專案放在電腦／容器，直接用指定目錄即可。先讀 README、題目 PDF，找 **在哪個環境建置、哪個板型、怎麼寫入、怎麼測試**；有現成 build／flash 腳本就讀並沿用。
+
+### 2 分清哪些在電腦、哪些在板子
+
+假設題目長這樣，名稱只是例子：
+
+```text
+problem/
+├── README.md
+├── host/client.py          主機端：送測資、接答案
+└── firmware/
+    ├── main.c              板端：初始化、收資料、計算、回結果
+    └── CMakeLists.txt      指定板端來源、SDK與工具鏈
+```
+
+**判斷依據是 README 的啟動／建置目標，不是只看副檔名。** 主機也能有 main.c，ESP-IDF也用CMake；看到 CMakeLists.txt 不代表一定是 Pico SDK。
+
+你原本的 processor.py、演練 engine.c 是在 Linux／Docker 執行的程式，不能直接當成 RP2350 韌體燒入。題目要它們接板子時，需有相符的板端專案與通訊介面。
+
+### 3 先用提供的流程 build，再改指定處
+
+先確認原專案能否產生預期韌體，建立「環境與工具鏈可用」的基準。原版若有 TODO，功能還沒通過不一定是建置問題。
+
+修改通常在 **收到資料 → 處理函式 → 回傳** 之中的指定位置，不必把給定的驅動、通訊和模型全部重寫。
+
+例如上面的 firmware/ **確定使用 Pico SDK、板子確定為 Pico 2，且現場 SDK／工具鏈已備好**，一般 CMake 命令可能長這樣：
+
+```bash
+cmake -S firmware -B build -DPICO_BOARD=pico2
+cmake --build build
+```
+
+這是在假想 problem/ 根目錄執行的示意，正式參數照 README；有 preset、指定架構或建置腳本時依原流程。建置輸出或 README 會指出產物，例如 `build/app.uf2`；app 是目標名例子，不是固定答案。
+
+### 4 把產物寫進指定板子
+
+| 題目專案／方式 | 把程式送進板子的方法 |
+|---|---|
+| Pico 2，採 BOOTSEL／UF2 | 按住 BOOTSEL 插入資料 USB 線，放開後出現 RP2350 磁碟；把對應 UF2 複製進去，寫入完成通常會自動重新啟動 |
+| Pico SDK，採 picotool／probe／腳本 | 按題目指定的產物與裝置選項寫入 |
+| ESP-IDF | 在實際專案用 `idf.py -p "<實際port>" flash` |
+| PlatformIO | 在對應專案用 `pio run -e "<env>" -t upload --upload-port "<實際port>"` |
+
+BOOTSEL磁碟是寫入入口：複製 UF2 時，板子的寫入機制把內容存進 Flash；不是把整個 repo 當一般資料夾搬進去。Flash保存韌體，板子重啟後按其啟動流程執行。
+
+寫入環境要看得到USB。若在容器編譯、主機才看得到板子，就由題目提供的方式取出產物並寫入；bind mount 可共享檔案，但不等於USB也已接進容器。
+
+### 5 再由主機送測資，確認板子回結果
+
+```text
+主機 client／ROS橋接程式 → 題目指定協定 → 板端接收 → 算法 → 回傳 → 主機核對
+```
+
+UF2寫入與平常送測資是兩種操作。韌體啟用USB串口時可能出現 ttyACM 裝置；也可能使用其他介面，以題目為準。host程式用哪個topic／port、封包格式和啟動命令，都從README或程式查。
+
+同一個串口不要同時讓monitor與正式接收程式讀，避免資料被讀走。多板要先對清序號／裝置與實際板子，再分派帶 job_id 的工作。
+
+### 6 改完以後，更新哪一邊
+
+| 你改了什麼 | 更新流程 |
+|---|---|
+| 主機 Python／ROS程式 | 依專案方式建置（若需要），重啟主機程序 |
+| 板子 C/C++／.pio | 存檔→重新build→flash／upload→重新連線→核對測資 |
+| 要交回考試 GitLab | 依規定 git add／commit／push，等待指定評分結果 |
+
+本機編譯成功、板子執行新韌體、GitLab收到作答是三個需要分開確認的結果。
+
+### 不知道 repo 哪一份該燒：貼給考場模型
+
+```text
+以下是題目README、目錄與建置設定：[貼內容]
+請分出主機程式與板端韌體，指出判斷依據。
+找出現成建置命令、產物、寫入方式及送測資方法。
+每步列出執行位置與成功時應看到什麼。
+板型、架構、分支、port缺資訊就列待確認，不要猜或另建專案。
+```
+
+來源：[GitLab clone](https://docs.gitlab.com/topics/git/clone/)、[Pico SDK建置](https://github.com/raspberrypi/pico-sdk/blob/master/README.md)、[BOOTSEL／UF2](https://www.raspberrypi.com/documentation/microcontrollers/pico-series.html)、[ESP-IDF flash](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/start-project.html)、[PlatformIO upload](https://docs.platformio.org/en/latest/core/userguide/cmd_run.html)。
+
 ## 第一性原理：程式必須變成目標硬體能執行的指令
 
 主機上的原始碼只是文字。要在板子上執行，必須依目標 CPU 編譯成機器碼，把程式、資料與入口安排到正確記憶體位置，再透過指定方式寫入。CPU 要控制接腳、PIO 或 DMA，則需要按晶片規格操作周邊。**RP2350 提供執行與周邊硬體，Pico SDK 把許多硬體操作包成可呼叫的 C/C++ 介面。**
