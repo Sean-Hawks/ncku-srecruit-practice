@@ -183,8 +183,24 @@ host.py 用 struct.pack/unpack；worker.c 用 load_le32/store_le32。未來換�
 - 你從 ROS 送資料，真的經過另一個程序的 C 計算才拿到答案。
 - 你找出一次接錯 topic 的問題。
 
-下一輪才加第二個 worker，練分派與結果合併；有板子時再換實際傳輸與燒錄。[回技術目錄](../../notes/技術/README.md)
+## 下一輪：兩個／三個 worker 分工
+
+完成上面步驟後，在**容器的 /demo/first-development**：
+
+```bash
+make
+python3 parallel.py --workers 2 --jobs 100
+python3 parallel.py --workers 3 --jobs 100
+```
+
+[parallel.py](parallel.py) 會先跑單 worker 基準，再開多個 C worker：哪個空了就拿下一筆，回傳帶全域工作 ID，最後逐筆比較答案。每個連線只由一條 thread 使用。worker.c 仍跑你目前編譯的公式，這個命令不會改它。
+
+應看到 PASS、各 worker 完成筆數與耗時。回傳順序不必一致，還原後的答案必須一致；工作很短時，多 worker 可能更慢。耗時不含 worker 程序建立／關閉，但包含主機 thread 排程，不能當成板子或 eBNN 的效能。
+
+真板子與 eBNN 接法看 [完整作答流程](../../notes/技術/RP2350-eBNN從單板到多板.md)。[回技術目錄](../../notes/技術/README.md)
 
 ## 已驗證（2026-11-13）
 
 在既有容器實際執行：make check、binary 往返、工作 ID、邊界值與不完整封包；在副本驗證「沒重編仍回 43，重編後回 22」。ROS 在獨立 domain 完成 `0→1、1→3、21→43、99→199、1000000→2000001`，並驗證非法輸入不發布答案、結束後回收 worker。原本 section2-1 的 processor 沒有修改。
+
+多 worker：兩個與三個 C worker 各跑 100 筆，與單 worker 逐筆一致；另驗證全域 ID、奇數筆數、工作少於 worker 數，以及替身連線的速度差、錯誤傳遞與清理。

@@ -26,10 +26,15 @@ class WorkerClient:
         )
         self.request_id = 0
 
-    def exchange(self, value, timeout=3.0):
+    def exchange(self, value, timeout=3.0, request_id=None):
         if not 0 <= value <= 1000000:
             raise ValueError("輸入範圍是 0..1000000")
-        self.request_id = (self.request_id + 1) & 0xFFFFFFFF
+        if request_id is None:
+            self.request_id = (self.request_id + 1) & 0xFFFFFFFF
+        elif isinstance(request_id, int) and 0 <= request_id <= 0xFFFFFFFF:
+            self.request_id = request_id  # 多 worker 時由排程器提供全域工作 ID。
+        else:
+            raise ValueError("工作 ID 必須是 unsigned 32-bit 整數")
         # <：小端序；兩個 I：兩個 unsigned 32-bit 數字，共八 bytes。
         request = struct.pack("<II", self.request_id, value)
         if self.process.stdin.write(request) != len(request):
